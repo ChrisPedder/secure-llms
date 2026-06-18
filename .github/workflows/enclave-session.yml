@@ -1,0 +1,54 @@
+name: Enclave Session
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-central-1
+
+jobs:
+  deploy:
+    name: Deploy enclave chatbot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Deploy enclave stack
+        working-directory: enclave/infra
+        run: |
+          npm ci
+          npx cdk deploy --require-approval never --outputs-file outputs.json
+
+      - name: Print session info
+        working-directory: enclave/infra
+        run: |
+          echo "============================================"
+          echo "  Enclave session deployed successfully"
+          echo "============================================"
+          echo ""
+          cat outputs.json | python3 -c "
+          import json, sys
+          o = json.load(sys.stdin)['SecureLlmsEnclave']
+          print(f\"  UI:       http://{o['InstancePublicIp']}:8080\")
+          print(f\"  KMS Key:  {o['KmsKeyId']}\")
+          print(f\"  Instance: {o['InstanceId']}\")
+          "
+          echo ""
+          echo "  Auto-teardown: instance stops after 30 min idle,"
+          echo "  then the teardown cron destroys the full stack."
+          echo ""
+          echo "  Manual destroy: gh workflow run enclave-teardown.yml"
+          echo "============================================"

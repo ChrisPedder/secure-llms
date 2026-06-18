@@ -82,24 +82,5 @@ jobs:
           npm ci
           npx cdk deploy --require-approval never
 
-  deploy-enclave:
-    name: Deploy enclave chatbot
-    needs: deploy-shared
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install and deploy enclave stack
-        working-directory: enclave/infra
-        run: |
-          npm ci
-          npx cdk deploy --require-approval never
+  # Enclave is deployed separately via enclave-session.yml (manual trigger)
+  # to avoid running a c5.xlarge continuously

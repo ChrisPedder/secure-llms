@@ -1,13 +1,13 @@
-name: Enclave Teardown Check
+name: Enclave Teardown
 
 on:
   schedule:
-    - cron: "0 */6 * * *"
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 jobs:
-  check-and-teardown:
-    name: Check enclave instance and teardown if idle
+  teardown:
+    name: Check and tear down enclave
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -15,25 +15,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'eu-central-1' }}
 
-      - name: Check and stop idle enclave instance
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Check enclave state and tear down if idle
+        working-directory: enclave/infra
         run: |
           STACK_NAME="SecureLlmsEnclave"
+
+          # Check if the stack exists
+          STACK_STATUS=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --query "Stacks[0].StackStatus" \
+            --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+
+          if [ "$STACK_STATUS" = "DOES_NOT_EXIST" ]; then
+            echo "No enclave stack found — nothing to do"
+            exit 0
+          fi
+
+          echo "Stack status: $STACK_STATUS"
 
           INSTANCE_ID=$(aws cloudformation describe-stacks \
             --stack-name "$STACK_NAME" \
             --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" \
-            --output text 2>/dev/null || echo "")
-
-          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
-            echo "No enclave stack found — nothing to do"
-            exit 0
-          fi
+            --output text)
 
           STATE=$(aws ec2 describe-instances \
             --instance-ids "$INSTANCE_ID" \
@@ -42,28 +54,33 @@ jobs:
 
           echo "Instance $INSTANCE_ID is $STATE"
 
-          if [ "$STATE" != "running" ]; then
-            echo "Instance not running — no action needed"
+          if [ "$STATE" = "running" ]; then
+            # Check CloudWatch for recent activity (last 35 minutes)
+            START=$(date -u -d '35 minutes ago' +%Y-%m-%dT%H:%M:%S 2>/dev/null \
+              || date -u -v-35M +%Y-%m-%dT%H:%M:%S)
+            END=$(date -u +%Y-%m-%dT%H:%M:%S)
+
+            DATAPOINTS=$(aws cloudwatch get-metric-statistics \
+              --namespace "SecureLlms/Enclave" \
+              --metric-name "LastRequestTimestamp" \
+              --start-time "$START" --end-time "$END" \
+              --period 300 --statistics Maximum \
+              --query "Datapoints | length(@)" --output text)
+
+            echo "Activity datapoints in last 35 min: $DATAPOINTS"
+
+            if [ "$DATAPOINTS" = "0" ]; then
+              echo "No recent activity — stopping instance as safety net"
+              aws ec2 stop-instances --instance-ids "$INSTANCE_ID"
+              echo "Instance stop initiated — will destroy stack on next run"
+            else
+              echo "Recent activity detected — keeping instance running"
+            fi
             exit 0
           fi
 
-          # Check CloudWatch for recent activity (last 35 minutes)
-          DATAPOINTS=$(aws cloudwatch get-metric-statistics \
-            --namespace "SecureLlms/Enclave" \
-            --metric-name "LastRequestTimestamp" \
-            --start-time "$(date -u -d '35 minutes ago' +%Y-%m-%dT%H:%M:%S 2>/dev/null || date -u -v-35M +%Y-%m-%dT%H:%M:%S)" \
-            --end-time "$(date -u +%Y-%m-%dT%H:%M:%S)" \
-            --period 300 \
-            --statistics Maximum \
-            --query "Datapoints | length(@)" \
-            --output text)
-
-          echo "Activity datapoints in last 35 min: $DATAPOINTS"
-
-          if [ "$DATAPOINTS" = "0" ]; then
-            echo "No recent activity — stopping instance"
-            aws ec2 stop-instances --instance-ids "$INSTANCE_ID"
-            echo "Stop initiated for $INSTANCE_ID"
-          else
-            echo "Recent activity detected — keeping instance running"
-          fi
+          # Instance is stopped — destroy the entire stack
+          echo "Instance is stopped — destroying stack to avoid ongoing costs"
+          npm ci
+          npx cdk destroy --force
+          echo "Stack destroyed successfully"
