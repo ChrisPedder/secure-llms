@@ -43,7 +43,7 @@ export class FheStack extends cdk.Stack {
     bucket.grantRead(taskDefinition.taskRole);
 
     const image = ecs.ContainerImage.fromAsset(
-      path.join(__dirname, "..", "..", ".."),
+      path.join(__dirname, "..", ".."),
     );
 
     taskDefinition.addContainer("fhe", {

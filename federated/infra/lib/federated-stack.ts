@@ -34,7 +34,7 @@ export class FederatedStack extends cdk.Stack {
     });
 
     const image = ecs.ContainerImage.fromAsset(
-      path.join(__dirname, "..", "..", ".."),
+      path.join(__dirname, "..", ".."),
     );
 
     taskDefinition.addContainer("federated", {
