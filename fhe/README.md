@@ -62,10 +62,17 @@ kaggle datasets download -d mlg-ulb/creditcardfraud -p data/ --unzip
 ```bash
 cd fhe
 uv sync --dev
-uv run python -m src.run --local --data-path ./data/creditcard.csv
 ```
 
-### Expected Output
+### Phase 1: Train and compare
+
+Train both the plaintext baseline and FHE model, run inference on the test set, and save the model for later use:
+
+```bash
+uv run python -m src.run train --data-path ./data/creditcard.csv --model-dir ./model
+```
+
+#### Expected Output
 
 ```
 Metric                    Plaintext          FHE       Diff
@@ -82,9 +89,21 @@ inference_time_s             0.0004     551.5342
 -----------------------------------------------------------
 Inference slowdown                               1492985.6x
 -----------------------------------------------------------
+
+Model saved to ./model/
 ```
 
 FHE inference is ~1.86s per sample. The massive slowdown demonstrates the core FHE trade-off: strong privacy guarantees at significant computational cost.
+
+### Phase 2: Predict on new samples
+
+Run FHE-encrypted inference on new data using the saved model:
+
+```bash
+uv run python -m src.run predict --model-dir ./model --input ./new_samples.csv
+```
+
+The input CSV should have the same feature columns as the training data (V1-V28, Time, Amount) without a Class column. Output shows per-sample fraud/legitimate predictions.
 
 ## AWS Deployment
 
@@ -107,7 +126,7 @@ cd fhe
 ./scripts/run-task.sh ./data/creditcard.csv
 ```
 
-The script uploads the dataset to S3, starts a Fargate task (4 vCPU, 8 GB), and streams CloudWatch logs.
+The script uploads the dataset to S3, starts a Fargate task (4 vCPU, 8 GB), and streams CloudWatch logs. The Fargate task runs the train phase only.
 
 ## Tests
 
