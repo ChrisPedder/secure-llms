@@ -74,4 +74,6 @@ cd infra && npx cdk destroy && cd ..
 
 GitHub Actions workflows:
 - **`ci.yml`** — Lints Python (ruff) and TypeScript (tsc + eslint), runs pytest for each sub-project
-- **`enclave-teardown.yml`** — Runs every 6 hours to stop idle enclave instances as a safety net
+- **`deploy.yml`** — Auto-deploys shared, federated, and FHE stacks on push to main
+- **`enclave-session.yml`** — Manual trigger to deploy the enclave stack (run via `gh workflow run enclave-session.yml`)
+- **`enclave-teardown.yml`** — Runs hourly; stops idle instances, then `cdk destroy`s the stack once stopped

@@ -37,13 +37,13 @@ Privacy-preserving LLM inference -- a web UI encrypts user messages client-side 
 
 ### Auto-Teardown
 
-The enclave instance auto-stops after 30 minutes of inactivity:
+The enclave stack is fully destroyed automatically after use:
 
 1. Parent server publishes a `LastRequestTimestamp` CloudWatch metric on each `/chat` request
 2. A CloudWatch alarm triggers when no data points arrive for 30 minutes
-3. The alarm fires an SNS topic that invokes a Lambda function
-4. The Lambda stops the EC2 instance
-5. A GitHub Actions workflow runs every 6 hours as a safety-net fallback
+3. The alarm fires an SNS topic that invokes a Lambda function to stop the EC2 instance
+4. A GitHub Actions cron (hourly) detects the stopped instance and runs `cdk destroy` to remove all resources
+5. Manual teardown: `gh workflow run enclave-teardown.yml`
 
 ## Cost Warning
 
@@ -63,7 +63,15 @@ The enclave runs on a `c5.xlarge` instance (~$0.17/hour). The auto-teardown mech
 
 This sub-project requires AWS deployment -- it cannot run fully locally (Nitro Enclaves require EC2 Nitro hardware).
 
-### Deploy
+### Deploy via GitHub Actions (recommended)
+
+```bash
+gh workflow run enclave-session.yml
+```
+
+Check the workflow run output for the instance IP and KMS key ID. The stack auto-tears-down after 30 minutes idle.
+
+### Deploy manually
 
 ```bash
 # Deploy shared VPC first (if not already done)
@@ -103,7 +111,13 @@ The tests mock vsock and AWS calls, so they run without any AWS infrastructure.
 
 ## Clean Up
 
+The hourly teardown cron will automatically `cdk destroy` the stack after the instance is stopped by the idle alarm. To destroy immediately:
+
 ```bash
+# Via GitHub Actions
+gh workflow run enclave-teardown.yml
+
+# Or manually
 cd enclave/infra && npx cdk destroy
 ```
 
