@@ -1,0 +1,29 @@
+[project]
+name = "secure-llms-fhe"
+version = "0.1.0"
+description = "FHE fraud detection with Concrete-ML"
+requires-python = ">=3.10"
+dependencies = [
+    "concrete-ml>=1.6,<2",
+    "scikit-learn>=1.3,<2",
+    "pandas>=2.0,<3",
+    "numpy>=1.24,<2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+]
+
+[tool.uv]
+override-dependencies = [
+    "onnxoptimizer>=0.4.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

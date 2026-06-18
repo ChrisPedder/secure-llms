@@ -1,3 +1,22 @@
+# BMAD agent framework
+.bmad/
+
+# Claude Code
+CLAUDE.md
+
+# Project-specific
+*.env
+credentials*
+*.pem
+*.key
+fhe/data/creditcard.csv
+federated/data/
+cdk.out/
+node_modules/
+
+# Claude Code session data
+.claude/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

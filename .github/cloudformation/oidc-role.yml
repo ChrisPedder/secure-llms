@@ -1,0 +1,67 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Bootstrap stack for GitHub Actions OIDC authentication.
+  Deploy this manually once per account before CI/CD can run.
+  Usage: aws cloudformation deploy --template-file oidc-role.yml --stack-name github-oidc --capabilities CAPABILITY_NAMED_IAM
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Default: ChrisPedder
+  GitHubRepo:
+    Type: String
+    Default: secure-llms
+  OIDCProviderArn:
+    Type: String
+    Default: ""
+    Description: >
+      ARN of an existing GitHub OIDC provider in this account.
+      Leave empty to create a new one. Only one provider per account is needed.
+
+Conditions:
+  CreateOIDCProvider: !Equals [!Ref OIDCProviderArn, ""]
+
+Resources:
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: github-actions-secure-llms
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateOIDCProvider
+                - !Ref GitHubOIDCProvider
+                - !Ref OIDCProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/${GitHubRepo}:*"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+
+Outputs:
+  RoleArn:
+    Description: IAM role ARN for GitHub Actions
+    Value: !GetAtt DeployRole.Arn
+  OIDCProviderArn:
+    Description: OIDC provider ARN (pass to other stacks if sharing across repos)
+    Value: !If
+      - CreateOIDCProvider
+      - !Ref GitHubOIDCProvider
+      - !Ref OIDCProviderArn

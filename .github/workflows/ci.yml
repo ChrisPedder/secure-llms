@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-python:
+    name: Lint Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v3
+        with:
+          args: check .
+
+  lint-cdk:
+    name: Lint CDK (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: [infra, federated/infra, fhe/infra, enclave/infra]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+        working-directory: ${{ matrix.project }}
+      - run: npx tsc --noEmit
+        working-directory: ${{ matrix.project }}
+      - run: npx eslint .
+        working-directory: ${{ matrix.project }}
+
+  test-federated:
+    name: Test Federated
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - working-directory: federated
+        run: |
+          uv sync --dev
+          uv run pytest tests/ -v
+
+  test-fhe:
+    name: Test FHE
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - working-directory: fhe
+        run: |
+          uv sync --dev
+          uv run pytest tests/ -v
+
+  test-enclave:
+    name: Test Enclave
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - working-directory: enclave
+        run: |
+          uv sync --dev
+          uv run pytest tests/ -v

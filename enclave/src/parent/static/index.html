@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Confidential Financial Advisor</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Confidential Financial Advisor</h1>
+      <p class="subtitle">End-to-end encrypted &mdash; your messages are encrypted in your browser before leaving your device</p>
+      <div id="status" class="status loading">Initializing encryption&hellip;</div>
+    </header>
+
+    <div id="chat" class="chat"></div>
+
+    <form id="chat-form" class="input-area">
+      <input
+        type="text"
+        id="message-input"
+        placeholder="Ask a financial question&hellip;"
+        autocomplete="off"
+        disabled
+      >
+      <button type="submit" id="send-btn" disabled>Send</button>
+    </form>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
