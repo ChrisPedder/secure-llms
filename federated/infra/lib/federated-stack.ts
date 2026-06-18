@@ -35,6 +35,7 @@ export class FederatedStack extends cdk.Stack {
 
     const image = ecs.ContainerImage.fromAsset(
       path.join(__dirname, "..", ".."),
+      { exclude: ["infra", ".venv", "__pycache__", "data"] },
     );
 
     taskDefinition.addContainer("federated", {
