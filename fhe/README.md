@@ -57,16 +57,16 @@ pip install kaggle
 kaggle datasets download -d mlg-ulb/creditcardfraud -p data/ --unzip
 ```
 
-## Local Setup and Run
+## Quick Start
 
 ```bash
 cd fhe
 uv sync --dev
 ```
 
-### Phase 1: Train and compare
+### 1. Train the model
 
-Train both the plaintext baseline and FHE model, run inference on the test set, and save the model for later use:
+Train both models, compare on the test set, and save the FHE model:
 
 ```bash
 uv run python -m src.run train --data-path ./data/creditcard.csv --model-dir ./model
@@ -93,17 +93,48 @@ Inference slowdown                               1492985.6x
 Model saved to ./model/
 ```
 
-FHE inference is ~1.86s per sample. The massive slowdown demonstrates the core FHE trade-off: strong privacy guarantees at significant computational cost.
+### 2. Predict on new samples (CLI)
 
-### Phase 2: Predict on new samples
-
-Run FHE-encrypted inference on new data using the saved model:
+Run FHE-encrypted inference on new data:
 
 ```bash
 uv run python -m src.run predict --model-dir ./model --input ./new_samples.csv
 ```
 
-The input CSV should have the same feature columns as the training data (V1-V28, Time, Amount) without a Class column. Output shows per-sample fraud/legitimate predictions.
+The input CSV should have the same feature columns as the training data (V1-V28, Time, Amount) without a Class column.
+
+### 3. Web UI
+
+Start the prediction frontend for interactive testing:
+
+```bash
+uv run python -m src.app --model-dir ./model
+```
+
+Open http://127.0.0.1:5001 in your browser. The UI lets you:
+
+- Upload a CSV file with transaction data
+- Toggle between simulated FHE (fast) and real FHE execution (slow, ~1.86s/sample)
+- View per-sample predictions with fraud/legitimate labels
+- If the CSV has a `Class` column, accuracy is computed against the ground truth
+
+## Train via GitHub Actions
+
+If the FHE stack is deployed, you can train in CI:
+
+```bash
+# Upload your dataset to the stack's S3 bucket first
+aws s3 cp ./data/creditcard.csv s3://<bucket-name>/creditcard.csv
+
+# Trigger training
+gh workflow run fhe-train.yml
+```
+
+The action trains the model and uploads artifacts to `s3://<bucket>/model/`. Download locally with:
+
+```bash
+aws s3 cp s3://<bucket-name>/model/artifacts.pkl ./model/artifacts.pkl
+```
 
 ## AWS Deployment
 
@@ -126,7 +157,7 @@ cd fhe
 ./scripts/run-task.sh ./data/creditcard.csv
 ```
 
-The script uploads the dataset to S3, starts a Fargate task (4 vCPU, 8 GB), and streams CloudWatch logs. The Fargate task runs the train phase only.
+The script uploads the dataset to S3, starts a Fargate task (4 vCPU, 8 GB), and streams CloudWatch logs.
 
 ## Tests
 

@@ -76,4 +76,6 @@ GitHub Actions workflows:
 - **`ci.yml`** — Lints Python (ruff) and TypeScript (tsc + eslint), runs pytest for each sub-project
 - **`deploy.yml`** — Auto-deploys shared, federated, and FHE stacks on push to main
 - **`enclave-session.yml`** — Manual trigger to deploy the enclave stack (run via `gh workflow run enclave-session.yml`)
+- **`fhe-train.yml`** — Manual trigger to train the FHE model (downloads data from S3, trains, uploads model back)
+- **`enclave-session.yml`** — Manual trigger to deploy the enclave stack (run via `gh workflow run enclave-session.yml`)
 - **`enclave-teardown.yml`** — Runs hourly; stops idle instances, then `cdk destroy`s the stack once stopped

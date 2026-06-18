@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FHE Fraud Detection</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>FHE Fraud Detection</h1>
+      <p class="subtitle">Fully Homomorphic Encryption inference with Concrete-ML</p>
+      <div class="controls">
+        <span id="status" class="status loading">Loading model...</span>
+        <label class="toggle">
+          <input type="checkbox" id="fhe-toggle">
+          <span class="toggle-label">Real FHE (slow)</span>
+        </label>
+      </div>
+    </header>
+
+    <main>
+      <div class="upload-zone" id="upload-zone">
+        <div class="upload-icon">&#x1f4c4;</div>
+        <p>Drop a CSV file here or <label for="file-input" class="file-link">browse</label></p>
+        <p class="hint">Same features as training data (V1-V28, Time, Amount). Class column optional.</p>
+        <input type="file" id="file-input" accept=".csv" hidden>
+      </div>
+
+      <div id="results" class="results" hidden>
+        <div class="summary" id="summary"></div>
+        <div class="table-wrap">
+          <table id="results-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Prediction</th>
+                <th>Actual</th>
+                <th>Correct</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
