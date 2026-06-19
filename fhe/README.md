@@ -103,20 +103,25 @@ uv run python -m src.run predict --model-dir ./model --input ./new_samples.csv
 
 The input CSV should have the same feature columns as the training data (V1-V28, Time, Amount) without a Class column.
 
-### 3. Web UI
+### 3. Interactive Web UI
 
-Start the prediction frontend for interactive testing:
+Start the prediction frontend to explore the FHE pipeline step-by-step:
 
 ```bash
-uv run python -m src.app --model-dir ./model
+uv run python -m src.app --model-dir ./model --data-path ./data/creditcard.csv
 ```
 
 Open http://127.0.0.1:5001 in your browser. The UI lets you:
 
-- Upload a CSV file with transaction data
-- Toggle between simulated FHE (fast) and real FHE execution (slow, ~1.86s/sample)
-- View per-sample predictions with fraud/legitimate labels
-- If the CSV has a `Class` column, accuracy is computed against the ground truth
+- Select example transactions from the dataset (10 fraud, 10 legitimate)
+- Edit any feature value to see how it affects the prediction
+- Watch the full FHE pipeline step-by-step:
+  1. **Quantize** -- float features mapped to integers
+  2. **Encrypt** -- quantized input encrypted under FHE keys (shows ciphertext hex)
+  3. **Compute on ciphertext** -- decision tree evaluated on encrypted data (~2.3s)
+  4. **Decrypt** -- encrypted result decrypted with secret key
+  5. **Decode** -- raw integers mapped to fraud/legitimate prediction
+- Compare predictions against ground truth labels
 
 ## Train via GitHub Actions
 

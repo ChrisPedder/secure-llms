@@ -1,19 +1,174 @@
-const statusEl = document.getElementById("status");
-const uploadZone = document.getElementById("upload-zone");
-const fileInput = document.getElementById("file-input");
-const resultsDiv = document.getElementById("results");
-const summaryDiv = document.getElementById("summary");
-const tbody = document.querySelector("#results-table tbody");
-const fheToggle = document.getElementById("fhe-toggle");
+const FEATURES = [];
+for (let i = 1; i <= 28; i++) FEATURES.push("V" + i);
+FEATURES.push("Time", "Amount");
 
-async function checkStatus() {
+const HIGHLIGHT = new Set(["Amount", "Time"]);
+
+const statusEl = document.getElementById("status");
+const sampleSelect = document.getElementById("sample-select");
+const featureGrid = document.getElementById("feature-grid");
+const predictBtn = document.getElementById("predict-btn");
+const pipeline = document.getElementById("pipeline");
+
+let samplesData = [];
+let currentActual = null;
+
+function buildFeatureInputs() {
+  featureGrid.innerHTML = "";
+  for (const name of FEATURES) {
+    const div = document.createElement("div");
+    div.className = "feature-field" + (HIGHLIGHT.has(name) ? " highlight" : "");
+    div.innerHTML = `
+      <label for="f-${name}">${name}</label>
+      <input type="number" step="any" id="f-${name}" value="0">
+    `;
+    featureGrid.appendChild(div);
+  }
+}
+
+function setFeatures(obj) {
+  for (const name of FEATURES) {
+    const el = document.getElementById("f-" + name);
+    if (el && obj[name] !== undefined) {
+      el.value = parseFloat(obj[name].toFixed(6));
+    }
+  }
+}
+
+function getFeatures() {
+  const features = {};
+  for (const name of FEATURES) {
+    features[name] = parseFloat(document.getElementById("f-" + name).value) || 0;
+  }
+  return features;
+}
+
+async function loadSamples() {
+  const res = await fetch("/samples");
+  const data = await res.json();
+  samplesData = data.samples;
+  sampleSelect.innerHTML = '<option value="">-- select --</option>';
+  for (const s of samplesData) {
+    const opt = document.createElement("option");
+    opt.value = s.index;
+    opt.textContent = `#${s.index} - ${s.label} ($${s.amount})`;
+    sampleSelect.appendChild(opt);
+  }
+}
+
+sampleSelect.addEventListener("change", () => {
+  const idx = sampleSelect.value;
+  if (idx === "") return;
+  const sample = samplesData.find((s) => s.index === parseInt(idx));
+  if (sample) {
+    setFeatures(sample.features);
+    currentActual = sample.actual;
+  }
+});
+
+function formatHex(hex) {
+  const chunks = hex.match(/.{1,2}/g) || [];
+  const lines = [];
+  for (let i = 0; i < chunks.length; i += 16) {
+    lines.push(chunks.slice(i, i + 16).join(" "));
+  }
+  return lines.join("\n") + "\n...";
+}
+
+function setStepState(id, state) {
+  const el = document.getElementById(id);
+  el.classList.remove("active", "done");
+  if (state) el.classList.add(state);
+}
+
+async function runPrediction() {
+  predictBtn.disabled = true;
+  statusEl.innerHTML = '<span class="spinner"></span>Running FHE pipeline...';
+  statusEl.className = "status working";
+  pipeline.hidden = false;
+
+  ["step-quantize", "step-encrypt", "step-compute", "step-decrypt", "step-result"].forEach(
+    (id) => setStepState(id, null)
+  );
+
+  const features = getFeatures();
+
+  try {
+    setStepState("step-quantize", "active");
+    const res = await fetch("/predict-steps", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ features }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const s = data.steps;
+
+    // Quantize
+    setStepState("step-quantize", "done");
+    document.getElementById("time-quantize").textContent = s.quantized.time_ms + " ms";
+    document.getElementById("data-quantize").textContent = s.quantized.values.join(", ");
+
+    // Encrypt
+    setStepState("step-encrypt", "done");
+    document.getElementById("time-encrypt").textContent = s.encrypted.time_ms + " ms";
+    document.getElementById("size-encrypt").textContent = s.encrypted.size_bytes + " bytes";
+    document.getElementById("data-encrypt").textContent = formatHex(s.encrypted.hex_preview);
+
+    // Compute
+    setStepState("step-compute", "done");
+    document.getElementById("time-compute").textContent = s.computed.time_ms + " ms";
+    document.getElementById("size-compute").textContent = s.computed.size_bytes + " bytes";
+    document.getElementById("data-compute").textContent = formatHex(s.computed.hex_preview);
+
+    // Decrypt
+    setStepState("step-decrypt", "done");
+    document.getElementById("time-decrypt").textContent = s.decrypted.time_ms + " ms";
+    document.getElementById("data-decrypt").textContent = "raw integers: [" + s.decrypted.raw.join(", ") + "]";
+
+    // Result
+    setStepState("step-result", "done");
+    const isFraud = s.output.prediction === 1;
+    let html = `
+      <div class="verdict ${isFraud ? "fraud" : "legit"}">
+        ${isFraud ? "FRAUD DETECTED" : "LEGITIMATE"}
+      </div>
+      <div class="probs">
+        class probabilities: [${s.output.probabilities.map((p) => p.toFixed(2)).join(", ")}]
+      </div>
+    `;
+    if (currentActual !== null) {
+      const correct = s.output.prediction === currentActual;
+      html += `
+        <div class="actual ${correct ? "correct" : "incorrect"}">
+          Ground truth: ${currentActual === 1 ? "FRAUD" : "legitimate"}
+          &mdash; ${correct ? "Correct" : "Incorrect"}
+        </div>
+      `;
+    }
+    document.getElementById("prediction").innerHTML = html;
+
+    statusEl.textContent = "Ready";
+    statusEl.className = "status ready";
+  } catch (err) {
+    statusEl.textContent = "Error: " + err.message;
+    statusEl.className = "status error";
+  } finally {
+    predictBtn.disabled = false;
+  }
+}
+
+predictBtn.addEventListener("click", runPrediction);
+
+async function init() {
   try {
     const res = await fetch("/status");
     const data = await res.json();
     if (data.ready) {
-      statusEl.textContent = `Ready (${data.fhe_mode} mode)`;
+      statusEl.textContent = "Ready";
       statusEl.className = "status ready";
-      uploadZone.classList.remove("disabled");
+      predictBtn.disabled = false;
+      await loadSamples();
     }
   } catch {
     statusEl.textContent = "Connection error";
@@ -21,109 +176,5 @@ async function checkStatus() {
   }
 }
 
-fheToggle.addEventListener("change", async () => {
-  const mode = fheToggle.checked ? "execute" : "simulate";
-  await fetch("/mode", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode }),
-  });
-  checkStatus();
-});
-
-uploadZone.addEventListener("click", () => fileInput.click());
-
-uploadZone.addEventListener("dragover", (e) => {
-  e.preventDefault();
-  uploadZone.classList.add("dragover");
-});
-
-uploadZone.addEventListener("dragleave", () => {
-  uploadZone.classList.remove("dragover");
-});
-
-uploadZone.addEventListener("drop", (e) => {
-  e.preventDefault();
-  uploadZone.classList.remove("dragover");
-  const file = e.dataTransfer.files[0];
-  if (file) uploadFile(file);
-});
-
-fileInput.addEventListener("change", () => {
-  if (fileInput.files[0]) uploadFile(fileInput.files[0]);
-});
-
-async function uploadFile(file) {
-  statusEl.innerHTML = '<span class="spinner"></span>Running inference...';
-  statusEl.className = "status loading";
-  uploadZone.classList.add("disabled");
-
-  const form = new FormData();
-  form.append("file", file);
-
-  try {
-    const res = await fetch("/predict", { method: "POST", body: form });
-    const data = await res.json();
-
-    if (data.error) {
-      statusEl.textContent = data.error;
-      statusEl.className = "status error";
-      return;
-    }
-
-    renderResults(data);
-    const mode = data.summary.fhe_mode;
-    statusEl.textContent = `Ready (${mode} mode)`;
-    statusEl.className = "status ready";
-  } catch (err) {
-    statusEl.textContent = "Request failed: " + err.message;
-    statusEl.className = "status error";
-  } finally {
-    uploadZone.classList.remove("disabled");
-    fileInput.value = "";
-  }
-}
-
-function renderResults(data) {
-  const s = data.summary;
-
-  let html = `
-    <div class="stat"><div class="value">${s.total}</div><div class="label">Samples</div></div>
-    <div class="stat fraud"><div class="value">${s.fraud}</div><div class="label">Fraud</div></div>
-    <div class="stat ok"><div class="value">${s.legitimate}</div><div class="label">Legitimate</div></div>
-    <div class="stat"><div class="value">${s.inference_time_s}s</div><div class="label">Inference</div></div>
-    <div class="stat"><div class="value">${s.per_sample_s}s</div><div class="label">Per sample</div></div>
-  `;
-
-  if (s.accuracy !== null) {
-    html += `<div class="stat"><div class="value">${(s.accuracy * 100).toFixed(1)}%</div><div class="label">Accuracy</div></div>`;
-  }
-
-  summaryDiv.innerHTML = html;
-
-  const hasActual = data.results.some((r) => r.actual !== undefined);
-  const headerRow = document.querySelector("#results-table thead tr");
-  headerRow.innerHTML = `<th>#</th><th>Prediction</th>`;
-  if (hasActual) headerRow.innerHTML += `<th>Actual</th><th>Correct</th>`;
-
-  tbody.innerHTML = data.results
-    .map((r) => {
-      const cls = [
-        r.prediction === 1 ? "fraud" : "",
-        hasActual ? (r.correct ? "correct" : "incorrect") : "",
-      ]
-        .filter(Boolean)
-        .join(" ");
-      let row = `<td>${r.index}</td><td>${r.label}</td>`;
-      if (hasActual) {
-        const actual = r.actual === 1 ? "FRAUD" : "legitimate";
-        row += `<td>${actual}</td><td>${r.correct ? "yes" : "NO"}</td>`;
-      }
-      return `<tr class="${cls}">${row}</tr>`;
-    })
-    .join("");
-
-  resultsDiv.hidden = false;
-}
-
-checkStatus();
+buildFeatureInputs();
+init();

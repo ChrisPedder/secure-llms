@@ -8,6 +8,8 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from .predict import load_model
 
+FEATURE_NAMES = [f"V{i}" for i in range(1, 29)] + ["Time", "Amount"]
+
 app = Flask(
     __name__,
     static_folder=os.path.join(os.path.dirname(__file__), "..", "static"),
@@ -16,12 +18,12 @@ app = Flask(
 _state = {
     "model": None,
     "compile_data": None,
+    "samples": None,
     "ready": False,
-    "fhe_mode": "simulate",
 }
 
 
-def _init_model(model_dir: str) -> None:
+def _init_model(model_dir: str, data_path: str | None) -> None:
     print(f"Loading model from {model_dir}...")
     model, compile_data = load_model(model_dir)
 
@@ -37,6 +39,14 @@ def _init_model(model_dir: str) -> None:
 
     _state["model"] = model
     _state["compile_data"] = compile_data
+
+    if data_path and os.path.exists(data_path):
+        df = pd.read_csv(data_path)
+        fraud = df[df["Class"] == 1].head(10)
+        legit = df[df["Class"] == 0].sample(n=10, random_state=42)
+        _state["samples"] = pd.concat([fraud, legit]).reset_index(drop=True)
+        print(f"  Loaded {len(_state['samples'])} example samples")
+
     _state["ready"] = True
     print("Model ready for predictions")
 
@@ -48,76 +58,94 @@ def index():
 
 @app.route("/status")
 def status():
-    return jsonify({
-        "ready": _state["ready"],
-        "fhe_mode": _state["fhe_mode"],
-    })
+    return jsonify({"ready": _state["ready"]})
 
 
-@app.route("/mode", methods=["POST"])
-def set_mode():
-    mode = request.json.get("mode", "simulate")
-    if mode not in ("simulate", "execute"):
-        return jsonify({"error": "Mode must be 'simulate' or 'execute'"}), 400
-    _state["fhe_mode"] = mode
-    return jsonify({"fhe_mode": mode})
+@app.route("/samples")
+def samples():
+    if _state["samples"] is None:
+        return jsonify({"samples": []})
+    df = _state["samples"]
+    result = []
+    for i, row in df.iterrows():
+        result.append({
+            "index": int(i),
+            "label": "FRAUD" if row["Class"] == 1 else "legitimate",
+            "actual": int(row["Class"]),
+            "amount": round(float(row["Amount"]), 2),
+            "features": {name: round(float(row[name]), 6) for name in FEATURE_NAMES},
+        })
+    return jsonify({"samples": result})
 
 
-@app.route("/predict", methods=["POST"])
-def predict():
+@app.route("/predict-steps", methods=["POST"])
+def predict_steps():
     if not _state["ready"]:
         return jsonify({"error": "Model not loaded yet"}), 503
 
     model = _state["model"]
-    fhe_mode = _state["fhe_mode"]
+    circuit = model.fhe_circuit
+    data = request.json
+    features = data.get("features", {})
 
-    if "file" in request.files:
-        file = request.files["file"]
-        df = pd.read_csv(file)
-    elif request.is_json:
-        df = pd.DataFrame(request.json["samples"])
-    else:
-        return jsonify({"error": "Send a CSV file or JSON with 'samples' array"}), 400
+    values = [features.get(name, 0.0) for name in FEATURE_NAMES]
+    X = np.array([values], dtype=np.float32)
 
-    if "Class" in df.columns:
-        labels = df["Class"].values.tolist()
-        df = df.drop(columns=["Class"])
-    else:
-        labels = None
+    # Step 1: Quantize
+    t0 = time.perf_counter()
+    q_input = model.quantize_input(X)
+    t_quantize = time.perf_counter() - t0
 
-    X = df.values.astype(np.float32)
+    # Step 2: Encrypt
+    t0 = time.perf_counter()
+    encrypted = circuit.encrypt(q_input)
+    ct_bytes = encrypted.serialize()
+    t_encrypt = time.perf_counter() - t0
 
-    start = time.perf_counter()
-    preds = model.predict(X, fhe=fhe_mode)
-    elapsed = time.perf_counter() - start
+    # Step 3: Compute on encrypted data
+    t0 = time.perf_counter()
+    encrypted_result = circuit.run(encrypted)
+    ct_result_bytes = encrypted_result.serialize()
+    t_compute = time.perf_counter() - t0
 
-    results = []
-    for i, pred in enumerate(preds):
-        row = {
-            "index": i,
-            "prediction": int(pred),
-            "label": "FRAUD" if pred == 1 else "legitimate",
-        }
-        if labels is not None:
-            row["actual"] = int(labels[i])
-            row["correct"] = int(pred) == int(labels[i])
-        results.append(row)
+    # Step 4: Decrypt
+    t0 = time.perf_counter()
+    decrypted = circuit.decrypt(encrypted_result)
+    t_decrypt = time.perf_counter() - t0
 
-    fraud_count = sum(1 for r in results if r["prediction"] == 1)
-    accuracy = None
-    if labels is not None:
-        accuracy = sum(1 for r in results if r.get("correct")) / len(results)
+    # Step 5: Dequantize and classify
+    dequantized = model.dequantize_output(decrypted.reshape(1, -1))
+    prediction = int(np.argmax(dequantized, axis=1)[0])
+    probabilities = dequantized[0].tolist()
 
     return jsonify({
-        "results": results,
-        "summary": {
-            "total": len(results),
-            "fraud": fraud_count,
-            "legitimate": len(results) - fraud_count,
-            "accuracy": accuracy,
-            "inference_time_s": round(elapsed, 3),
-            "per_sample_s": round(elapsed / len(results), 3) if results else 0,
-            "fhe_mode": fhe_mode,
+        "steps": {
+            "input": {
+                "values": dict(zip(FEATURE_NAMES, [round(v, 6) for v in values], strict=True)),
+            },
+            "quantized": {
+                "values": q_input[0].tolist(),
+                "time_ms": round(t_quantize * 1000, 2),
+            },
+            "encrypted": {
+                "size_bytes": len(ct_bytes),
+                "hex_preview": ct_bytes[:48].hex(),
+                "time_ms": round(t_encrypt * 1000, 2),
+            },
+            "computed": {
+                "size_bytes": len(ct_result_bytes),
+                "hex_preview": ct_result_bytes[:48].hex(),
+                "time_ms": round(t_compute * 1000, 2),
+            },
+            "decrypted": {
+                "raw": decrypted.flatten().tolist(),
+                "time_ms": round(t_decrypt * 1000, 2),
+            },
+            "output": {
+                "probabilities": probabilities,
+                "prediction": prediction,
+                "label": "FRAUD" if prediction == 1 else "legitimate",
+            },
         },
     })
 
@@ -125,11 +153,13 @@ def predict():
 def main() -> None:
     parser = argparse.ArgumentParser(description="FHE Fraud Detection Web UI")
     parser.add_argument("--model-dir", default="./model", help="Path to saved model")
+    parser.add_argument("--data-path", default="./data/creditcard.csv",
+                        help="Path to dataset for example samples")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5001)
     args = parser.parse_args()
 
-    _init_model(args.model_dir)
+    _init_model(args.model_dir, args.data_path)
     app.run(host=args.host, port=args.port, debug=False)
 
 

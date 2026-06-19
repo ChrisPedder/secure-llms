@@ -10,41 +10,85 @@
   <div class="container">
     <header>
       <h1>FHE Fraud Detection</h1>
-      <p class="subtitle">Fully Homomorphic Encryption inference with Concrete-ML</p>
-      <div class="controls">
-        <span id="status" class="status loading">Loading model...</span>
-        <label class="toggle">
-          <input type="checkbox" id="fhe-toggle">
-          <span class="toggle-label">Real FHE (slow)</span>
-        </label>
-      </div>
+      <p class="subtitle">Step-by-step fully homomorphic encryption inference with Concrete-ML</p>
+      <span id="status" class="status loading">Loading model...</span>
     </header>
 
-    <main>
-      <div class="upload-zone" id="upload-zone">
-        <div class="upload-icon">&#x1f4c4;</div>
-        <p>Drop a CSV file here or <label for="file-input" class="file-link">browse</label></p>
-        <p class="hint">Same features as training data (V1-V28, Time, Amount). Class column optional.</p>
-        <input type="file" id="file-input" accept=".csv" hidden>
-      </div>
-
-      <div id="results" class="results" hidden>
-        <div class="summary" id="summary"></div>
-        <div class="table-wrap">
-          <table id="results-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Prediction</th>
-                <th>Actual</th>
-                <th>Correct</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+    <div class="panels">
+      <section class="input-panel">
+        <h2>Transaction Input</h2>
+        <div class="sample-picker">
+          <label for="sample-select">Load example:</label>
+          <select id="sample-select">
+            <option value="">-- select --</option>
+          </select>
         </div>
-      </div>
-    </main>
+
+        <div class="feature-grid" id="feature-grid"></div>
+
+        <button id="predict-btn" class="predict-btn" disabled>
+          Encrypt &amp; Predict
+        </button>
+      </section>
+
+      <section class="pipeline-panel" id="pipeline" hidden>
+        <h2>FHE Pipeline</h2>
+
+        <div class="step" id="step-quantize">
+          <div class="step-header">
+            <span class="step-num">1</span>
+            <span class="step-title">Quantize</span>
+            <span class="step-time" id="time-quantize"></span>
+          </div>
+          <p class="step-desc">Float features mapped to integers for FHE circuit</p>
+          <pre class="step-data" id="data-quantize"></pre>
+        </div>
+
+        <div class="step" id="step-encrypt">
+          <div class="step-header">
+            <span class="step-num">2</span>
+            <span class="step-title">Encrypt</span>
+            <span class="step-time" id="time-encrypt"></span>
+          </div>
+          <p class="step-desc">Quantized input encrypted under FHE public key</p>
+          <div class="ct-info">
+            <span class="ct-size" id="size-encrypt"></span>
+          </div>
+          <pre class="step-data hex" id="data-encrypt"></pre>
+        </div>
+
+        <div class="step" id="step-compute">
+          <div class="step-header">
+            <span class="step-num">3</span>
+            <span class="step-title">Compute on ciphertext</span>
+            <span class="step-time" id="time-compute"></span>
+          </div>
+          <p class="step-desc">Decision tree evaluated entirely on encrypted data</p>
+          <div class="ct-info">
+            <span class="ct-size" id="size-compute"></span>
+          </div>
+          <pre class="step-data hex" id="data-compute"></pre>
+        </div>
+
+        <div class="step" id="step-decrypt">
+          <div class="step-header">
+            <span class="step-num">4</span>
+            <span class="step-title">Decrypt</span>
+            <span class="step-time" id="time-decrypt"></span>
+          </div>
+          <p class="step-desc">Encrypted result decrypted with FHE secret key</p>
+          <pre class="step-data" id="data-decrypt"></pre>
+        </div>
+
+        <div class="step result-step" id="step-result">
+          <div class="step-header">
+            <span class="step-num">5</span>
+            <span class="step-title">Decode prediction</span>
+          </div>
+          <div class="prediction" id="prediction"></div>
+        </div>
+      </section>
+    </div>
   </div>
 
   <script src="/static/app.js"></script>
